@@ -610,6 +610,8 @@ export function TRChatPanel({
     const apiKeys = {
         claudeApiKey: profile?.claudeApiKey ?? null,
         geminiApiKey: profile?.geminiApiKey ?? null,
+        openrouterApiKey: profile?.openrouterApiKey ?? null,
+        copilotEnabled: profile?.copilotEnabled ?? false,
     };
     const currentModel = profile?.tabularModel ?? "gemini-3-flash-preview";
     const [apiKeyModalProvider, setApiKeyModalProvider] =

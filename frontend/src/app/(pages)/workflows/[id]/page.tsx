@@ -3,12 +3,14 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { ChevronDown, Plus, Users, X } from "lucide-react";
-import { getWorkflow, updateWorkflow } from "@/app/lib/mikeApi";
+import { ChevronDown, Download, Grip, Play, Plus, Users, X } from "lucide-react";
+import { getWorkflow, listWorkflows, updateWorkflow } from "@/app/lib/mikeApi";
 import { ShareWorkflowModal } from "@/app/components/workflows/ShareWorkflowModal";
+import { DisplayWorkflowModal } from "@/app/components/workflows/DisplayWorkflowModal";
 import { WFEditColumnModal } from "@/app/components/workflows/WFEditColumnModal";
 import { WFColumnViewModal } from "@/app/components/workflows/WFColumnViewModal";
 import { AddColumnModal } from "@/app/components/tabular/AddColumnModal";
+import { GherkinScenarioViewer } from "@/app/components/workflows/GherkinScenarioViewer";
 import type { ColumnConfig, MikeWorkflow } from "@/app/components/shared/types";
 import {
     BUILT_IN_IDS,
@@ -71,6 +73,90 @@ export default function WorkflowDetailPage({ params }: Props) {
     // Share popover
     const [shareOpen, setShareOpen] = useState(false);
 
+    // Use-workflow modal
+    const [useOpen, setUseOpen] = useState(false);
+    const [allWorkflows, setAllWorkflows] = useState<MikeWorkflow[]>([]);
+
+    async function handleOpenUse() {
+        if (allWorkflows.length === 0) {
+            try {
+                const list = await listWorkflows();
+                setAllWorkflows(list);
+            } catch {
+                setAllWorkflows(workflow ? [workflow] : []);
+            }
+        }
+        setUseOpen(true);
+    }
+
+    function handleExport() {
+        if (!workflow) return;
+        const safeName = (workflow.title || "workflow")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/(^-|-$)/g, "") || "workflow";
+        const ordered = [...columns].sort((a, b) => a.index - b.index);
+        const lines: string[] = [];
+        lines.push("---");
+        lines.push(`schema: mike.workflow/v1`);
+        lines.push(`id: ${workflow.id}`);
+        lines.push(`title: ${JSON.stringify(workflow.title)}`);
+        lines.push(`type: ${workflow.type}`);
+        if (workflow.practice) lines.push(`practice: ${workflow.practice}`);
+        lines.push(`exported_at: ${new Date().toISOString()}`);
+        lines.push("---");
+        lines.push("");
+        lines.push(`# ${workflow.title}`);
+        lines.push("");
+        if (workflow.type === "assistant") {
+            lines.push("## Prompt");
+            lines.push("");
+            lines.push((workflow.prompt_md || "").trim() || "_No prompt set._");
+            lines.push("");
+        } else {
+            lines.push("## Steps");
+            lines.push("");
+            if (ordered.length === 0) {
+                lines.push("_No steps defined._");
+                lines.push("");
+            } else {
+                ordered.forEach((col, i) => {
+                    const fmt = formatLabel(col.format ?? "text");
+                    lines.push(`### ${i + 1}. ${col.name}`);
+                    lines.push("");
+                    lines.push(`- **Format:** ${fmt}`);
+                    if (col.tags && col.tags.length > 0) {
+                        lines.push(`- **Tags:** ${col.tags.join(", ")}`);
+                    }
+                    lines.push("");
+                    lines.push("**Prompt:**");
+                    lines.push("");
+                    lines.push("```");
+                    lines.push((col.prompt || "").trim());
+                    lines.push("```");
+                    lines.push("");
+                });
+            }
+            lines.push("## Gherkin scenario");
+            lines.push("");
+            lines.push("```gherkin");
+            lines.push(gherkinScenario());
+            lines.push("```");
+            lines.push("");
+        }
+        const blob = new Blob([lines.join("\n")], {
+            type: "text/markdown;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${safeName}.agent.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
     // Column actions dropdown
     const [colActionsOpen, setColActionsOpen] = useState(false);
     const colActionsRef = useRef<HTMLDivElement>(null);
@@ -84,6 +170,43 @@ export default function WorkflowDetailPage({ params }: Props) {
         if (colActionsOpen) document.addEventListener("mousedown", handleClick);
         return () => document.removeEventListener("mousedown", handleClick);
     }, [colActionsOpen]);
+
+    // Drag-and-drop reordering state
+    const [dragIndex, setDragIndex] = useState<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+    function reorderColumns(from: number, to: number) {
+        if (from === to) return;
+        const ordered = [...columns].sort((a, b) => a.index - b.index);
+        const [moved] = ordered.splice(from, 1);
+        ordered.splice(to, 0, moved);
+        const reindexed = ordered.map((c, i) => ({ ...c, index: i }));
+        setColumns(reindexed);
+        saveColumns(reindexed);
+    }
+
+    function gherkinScenario(): string {
+        const title = workflow?.title?.trim() || "Untitled workflow";
+        const ordered = [...columns].sort((a, b) => a.index - b.index);
+        const lines: string[] = [];
+        lines.push(`Feature: ${title}`);
+        lines.push("");
+        lines.push(`  Scenario: ${title}`);
+        lines.push(`    Given a document under review`);
+        if (ordered.length === 0) {
+            lines.push(`    Then no extraction steps are defined`);
+            return lines.join("\n");
+        }
+        ordered.forEach((col, i) => {
+            const keyword = i === 0 ? "When" : "And";
+            const fmt = formatLabel(col.format ?? "text");
+            lines.push(
+                `    ${keyword} the assistant extracts "${col.name}" as ${fmt}`,
+            );
+        });
+        lines.push(`    Then the results are returned as a tabular review`);
+        return lines.join("\n");
+    }
 
     // ---------------------------------------------------------------------------
     // Load workflow
@@ -278,6 +401,34 @@ export default function WorkflowDetailPage({ params }: Props) {
                               : ""}
                     </span>
 
+                    {/* Use workflow */}
+                    <button
+                        onClick={handleOpenUse}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 transition-colors"
+                        title="Run this workflow"
+                    >
+                        <Play className="h-3 w-3" />
+                        Use workflow
+                    </button>
+
+                    {/* Export agent file */}
+                    <button
+                        onClick={handleExport}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                        title="Export as portable agent file (JSON)"
+                    >
+                        <Download className="h-3 w-3" />
+                        Export agent file
+                    </button>
+
+                    {useOpen && (
+                        <DisplayWorkflowModal
+                            workflows={allWorkflows.length ? allWorkflows : (workflow ? [workflow] : [])}
+                            workflow={workflow}
+                            onClose={() => setUseOpen(false)}
+                        />
+                    )}
+
                     {/* Share button (custom workflows only) */}
                     {canShare && (
                         <button
@@ -409,16 +560,57 @@ export default function WorkflowDetailPage({ params }: Props) {
                                 columns.map((col) => {
                                     const FormatIcon = formatIcon(col.format ?? "text");
                                     const isChecked = selectedColIndices.includes(col.index);
+                                    const isDragOver =
+                                        dragOverIndex === col.index &&
+                                        dragIndex !== col.index;
                                     return (
                                         <div
                                             key={col.index}
                                             onClick={() => readOnly ? setViewingColumn(col) : setEditingColumn(col)}
-                                            className="group flex items-center h-10 pr-8 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
+                                            onDragOver={(e) => {
+                                                if (readOnly || dragIndex === null) return;
+                                                e.preventDefault();
+                                                e.dataTransfer.dropEffect = "move";
+                                                if (dragOverIndex !== col.index) setDragOverIndex(col.index);
+                                            }}
+                                            onDrop={(e) => {
+                                                if (readOnly || dragIndex === null) return;
+                                                e.preventDefault();
+                                                reorderColumns(dragIndex, col.index);
+                                                setDragIndex(null);
+                                                setDragOverIndex(null);
+                                            }}
+                                            onDragLeave={() => {
+                                                if (dragOverIndex === col.index) setDragOverIndex(null);
+                                            }}
+                                            className={`group relative flex items-center h-10 pr-8 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors ${
+                                                isDragOver ? "border-t-2 border-t-black" : ""
+                                            } ${dragIndex === col.index ? "opacity-40" : ""}`}
                                         >
                                             <div
-                                                className={`sticky left-0 z-[60] ${CHECK_W} p-2 flex items-center justify-center ${isChecked ? "bg-gray-50" : "bg-white"} group-hover:bg-gray-50`}
+                                                className={`sticky left-0 z-[60] ${CHECK_W} relative p-2 flex items-center justify-center ${isChecked ? "bg-gray-50" : "bg-white"} group-hover:bg-gray-50`}
                                                 onClick={(e) => e.stopPropagation()}
                                             >
+                                                {!readOnly && (
+                                                    <div
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            setDragIndex(col.index);
+                                                            e.dataTransfer.effectAllowed = "move";
+                                                            e.dataTransfer.setData("text/plain", String(col.index));
+                                                        }}
+                                                        onDragEnd={() => {
+                                                            setDragIndex(null);
+                                                            setDragOverIndex(null);
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="absolute inset-0 z-[65] flex items-center justify-center bg-inherit text-gray-400 hover:text-gray-700 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        title="Drag to reorder"
+                                                        aria-label="Drag to reorder"
+                                                    >
+                                                        <Grip className="h-3.5 w-3.5" />
+                                                    </div>
+                                                )}
                                                 <input
                                                     type="checkbox"
                                                     checked={isChecked}
@@ -464,6 +656,16 @@ export default function WorkflowDetailPage({ params }: Props) {
                                 })
                             )}
                         </div>
+
+                        {/* Gherkin scenario preview */}
+                        {workflow.type === "tabular" && columns.length > 0 && (
+                            <div className="px-8 py-6 shrink-0 border-t border-gray-100">
+                                <GherkinScenarioViewer
+                                    text={gherkinScenario()}
+                                    fileName={`${(workflow.title || "workflow").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "workflow"}.feature`}
+                                />
+                            </div>
+                        )}
                         </div>
                         </div>
                     </div>

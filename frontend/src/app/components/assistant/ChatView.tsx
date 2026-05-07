@@ -5,6 +5,7 @@ import { ArrowDown } from "lucide-react";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ChatInput } from "./ChatInput";
+import { ChatShortcuts } from "./ChatShortcuts";
 import {
     AssistantSidePanel,
     type AssistantSidePanelTab,
@@ -580,11 +581,12 @@ export function ChatView({
                                 onCancel={cancel}
                                 isLoading={isResponseLoading}
                             />
-                            <div className="py-3 text-center">
+                            <div className="py-3 text-center space-y-4">
                                 <p className="text-xs text-gray-500">
                                     AI can make mistakes. Answers are not legal
                                     advice.
                                 </p>
+                                <ChatShortcuts />
                             </div>
                         </div>
                     </div>

@@ -15,7 +15,7 @@ import { isModelAvailable } from "@/app/lib/modelAvailability";
 export interface ModelOption {
     id: string;
     label: string;
-    group: "Anthropic" | "Google";
+    group: "Anthropic" | "Google" | "OpenRouter" | "Copilot";
 }
 
 export const MODELS: ModelOption[] = [
@@ -23,13 +23,25 @@ export const MODELS: ModelOption[] = [
     { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", group: "Anthropic" },
     { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", group: "Google" },
     { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", group: "Google" },
+    { id: "openrouter/openai/gpt-5", label: "GPT-5", group: "OpenRouter" },
+    { id: "openrouter/openai/gpt-4o", label: "GPT-4o", group: "OpenRouter" },
+    { id: "openrouter/x-ai/grok-2", label: "Grok 2", group: "OpenRouter" },
+    { id: "openrouter/meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B", group: "OpenRouter" },
+    { id: "openrouter/deepseek/deepseek-chat", label: "DeepSeek Chat", group: "OpenRouter" },
+    { id: "openrouter/mistralai/mistral-large", label: "Mistral Large", group: "OpenRouter" },
+    { id: "copilot/gpt-4.1", label: "GPT-4.1 (Copilot)", group: "Copilot" },
+    { id: "copilot/gpt-4o", label: "GPT-4o (Copilot)", group: "Copilot" },
+    { id: "copilot/gpt-4o-mini", label: "GPT-4o mini (Copilot)", group: "Copilot" },
+    { id: "copilot/claude-sonnet-4.6", label: "Claude Sonnet 4.6 (Copilot)", group: "Copilot" },
+    { id: "copilot/claude-opus-4.7", label: "Claude Opus 4.7 (Copilot)", group: "Copilot" },
+    { id: "copilot/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (Copilot)", group: "Copilot" },
 ];
 
 export const DEFAULT_MODEL_ID = "gemini-3-flash-preview";
 
 export const ALLOWED_MODEL_IDS = new Set(MODELS.map((m) => m.id));
 
-const GROUP_ORDER: ModelOption["group"][] = ["Anthropic", "Google"];
+const GROUP_ORDER: ModelOption["group"][] = ["Anthropic", "Google", "OpenRouter", "Copilot"];
 
 interface Props {
     value: string;
@@ -37,6 +49,8 @@ interface Props {
     apiKeys?: {
         claudeApiKey: string | null;
         geminiApiKey: string | null;
+        openrouterApiKey?: string | null;
+        copilotEnabled?: boolean;
     };
 }
 

@@ -3,6 +3,7 @@
 import {
     useState,
     useCallback,
+    useEffect,
     useRef,
     forwardRef,
     useImperativeHandle,
@@ -10,10 +11,14 @@ import {
 import {
     ArrowRight,
     Check,
+    Database,
     File,
     FileText,
     FolderOpen,
+    Globe,
     Library,
+    Pencil,
+    Scale,
     Square,
     X,
 } from "lucide-react";
@@ -34,6 +39,24 @@ import type { MikeDocument, MikeMessage } from "../shared/types";
 export interface ChatInputHandle {
     addDoc: (doc: MikeDocument) => void;
 }
+
+type ShortcutIcon = "globe" | "database" | "scale" | "pencil" | "library";
+
+interface ActiveShortcut {
+    id: string;
+    label: string;
+    icon: ShortcutIcon;
+    /** Tailwind classes applied to the chip wrapper. */
+    chipClass?: string;
+}
+
+const SHORTCUT_ICONS: Record<ShortcutIcon, React.ComponentType<{ className?: string }>> = {
+    globe: Globe,
+    database: Database,
+    scale: Scale,
+    pencil: Pencil,
+    library: Library,
+};
 
 interface Props {
     onSubmit: (message: MikeMessage) => void;
@@ -65,11 +88,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         id: string;
         title: string;
     } | null>(null);
+    const [activeShortcuts, setActiveShortcuts] = useState<ActiveShortcut[]>(
+        [],
+    );
     const [model, setModel] = useSelectedModel();
     const { profile } = useUserProfile();
     const apiKeys = {
         claudeApiKey: profile?.claudeApiKey ?? null,
         geminiApiKey: profile?.geminiApiKey ?? null,
+        openrouterApiKey: profile?.openrouterApiKey ?? null,
+        copilotEnabled: profile?.copilotEnabled ?? false,
     };
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [docSelectorOpen, setDocSelectorOpen] = useState(false);
@@ -85,6 +113,72 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
             });
         },
     }));
+
+    // Listen for shortcut prefill events from <ChatShortcuts />
+    useEffect(() => {
+        function handlePrefill(e: Event) {
+            const detail = (e as CustomEvent<{ prompt: string }>).detail;
+            if (!detail?.prompt) return;
+            setValue((prev) => (prev ? prev : detail.prompt));
+            requestAnimationFrame(() => {
+                const ta = textareaRef.current;
+                if (!ta) return;
+                ta.focus();
+                const len = ta.value.length;
+                ta.setSelectionRange(len, len);
+            });
+        }
+        window.addEventListener("chat:prefill", handlePrefill as EventListener);
+        return () =>
+            window.removeEventListener(
+                "chat:prefill",
+                handlePrefill as EventListener,
+            );
+    }, []);
+
+    // Listen for active shortcut add/remove events.
+    useEffect(() => {
+        function handleAdd(e: Event) {
+            const detail = (e as CustomEvent<ActiveShortcut>).detail;
+            if (!detail?.id) return;
+            setActiveShortcuts((prev) => {
+                const filtered = prev.filter((s) => s.id !== detail.id);
+                return [...filtered, detail];
+            });
+        }
+        function handleRemove(e: Event) {
+            const detail = (e as CustomEvent<{ id: string }>).detail;
+            if (!detail?.id) return;
+            setActiveShortcuts((prev) => prev.filter((s) => s.id !== detail.id));
+        }
+        window.addEventListener(
+            "chat:shortcut:add",
+            handleAdd as EventListener,
+        );
+        window.addEventListener(
+            "chat:shortcut:remove",
+            handleRemove as EventListener,
+        );
+        return () => {
+            window.removeEventListener(
+                "chat:shortcut:add",
+                handleAdd as EventListener,
+            );
+            window.removeEventListener(
+                "chat:shortcut:remove",
+                handleRemove as EventListener,
+            );
+        };
+    }, []);
+
+    // Broadcast current active ids so shortcut buttons can reflect state.
+    useEffect(() => {
+        window.dispatchEvent(
+            new CustomEvent("chat:shortcut:state", {
+                detail: { activeIds: activeShortcuts.map((s) => s.id) },
+            }),
+        );
+    }, [activeShortcuts]);
 
     const handleAddDocFromProject = useCallback((doc: MikeDocument) => {
         setAttachedDocs((prev) => {
@@ -162,7 +256,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
             <div className="w-full">
                 <div className="border border-gray-300 rounded-[16px] md:rounded-[20px] bg-white">
                     {/* Attached chips */}
-                    {(selectedWorkflow || attachedDocs.length > 0) && (
+                    {(selectedWorkflow || activeShortcuts.length > 0 || attachedDocs.length > 0) && (
                         <div className="flex flex-wrap gap-1.5 px-2 pt-2">
                             {selectedWorkflow && (
                                 <div className="inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full text-xs bg-blue-600 text-white border border-white/20 shadow backdrop-blur-sm">
@@ -181,6 +275,36 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                                     </button>
                                 </div>
                             )}
+                            {activeShortcuts.map((sc) => {
+                                const Icon = SHORTCUT_ICONS[sc.icon] ?? Library;
+                                return (
+                                    <div
+                                        key={sc.id}
+                                        className={`inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs border ${sc.chipClass ?? "bg-blue-50 text-blue-700 border-blue-200"}`}
+                                    >
+                                        <Icon className="h-3 w-3 shrink-0" />
+                                        <span className="max-w-[140px] truncate">
+                                            {sc.label}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                window.dispatchEvent(
+                                                    new CustomEvent(
+                                                        "chat:shortcut:remove",
+                                                        {
+                                                            detail: { id: sc.id },
+                                                        },
+                                                    ),
+                                                )
+                                            }
+                                            className="rounded-full p-0.5 ml-0.5 opacity-60 hover:opacity-100 hover:bg-black/10 transition-opacity"
+                                        >
+                                            <X className="h-2.5 w-2.5" />
+                                        </button>
+                                    </div>
+                                );
+                            })}
                             {attachedDocs.map((doc) => {
                                 const ft = doc.file_type?.toLowerCase();
                                 const isPdf = ft === "pdf";

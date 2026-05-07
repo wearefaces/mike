@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/contexts/UserProfileContext";
 import { MikeIcon } from "@/components/chat/mike-icon";
 import { ChatInput } from "./ChatInput";
+import { ChatShortcuts } from "./ChatShortcuts";
 import { SelectAssistantProjectModal } from "./SelectAssistantProjectModal";
 import type { MikeMessage } from "../shared/types";
 
@@ -82,10 +83,11 @@ export function InitialView({ onSubmit }: InitialViewProps) {
                         onProjectsClick={() => setProjectModalOpen(true)}
                     />
 
-                    <div className="text-center">
-                        <p className="text-xs py-3 mb-3 text-gray-500">
+                    <div className="text-center space-y-4 py-3 mb-3">
+                        <p className="text-xs text-gray-500">
                             AI can make mistakes. Answers are not legal advice.
                         </p>
+                        <ChatShortcuts />
                     </div>
                 </div>
             </div>

@@ -21,6 +21,8 @@ interface UserProfile {
     tabularModel: string;
     claudeApiKey: string | null;
     geminiApiKey: string | null;
+    openrouterApiKey: string | null;
+    copilotEnabled: boolean;
 }
 
 interface UserProfileContextType {
@@ -33,9 +35,10 @@ interface UserProfileContextType {
         value: string,
     ) => Promise<boolean>;
     updateApiKey: (
-        provider: "claude" | "gemini",
+        provider: "claude" | "gemini" | "openrouter",
         value: string | null,
     ) => Promise<boolean>;
+    updateCopilotEnabled: (enabled: boolean) => Promise<boolean>;
     reloadProfile: () => Promise<void>;
     incrementMessageCredits: () => Promise<boolean>;
 }
@@ -77,6 +80,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                     tabularModel: "gemini-3-flash-preview",
                     claudeApiKey: null,
                     geminiApiKey: null,
+                    openrouterApiKey: null,
+                    copilotEnabled: false,
                 });
                 return;
             }
@@ -111,6 +116,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                         data.tabular_model || "gemini-3-flash-preview",
                     claudeApiKey: data.claude_api_key ?? null,
                     geminiApiKey: data.gemini_api_key ?? null,
+                    openrouterApiKey: data.openrouter_api_key ?? null,
+                    copilotEnabled: Boolean(data.copilot_enabled),
                 });
 
                 // 2. Update database in background if needed
@@ -148,6 +155,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 tabularModel: "gemini-3-flash-preview",
                 claudeApiKey: null,
                 geminiApiKey: null,
+                openrouterApiKey: null,
+                copilotEnabled: false,
             });
         } finally {
             setLoading(false);
@@ -245,14 +254,22 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
 
     const updateApiKey = useCallback(
         async (
-            provider: "claude" | "gemini",
+            provider: "claude" | "gemini" | "openrouter",
             value: string | null,
         ): Promise<boolean> => {
             if (!user) return false;
             const dbField =
-                provider === "claude" ? "claude_api_key" : "gemini_api_key";
+                provider === "claude"
+                    ? "claude_api_key"
+                    : provider === "gemini"
+                      ? "gemini_api_key"
+                      : "openrouter_api_key";
             const stateField =
-                provider === "claude" ? "claudeApiKey" : "geminiApiKey";
+                provider === "claude"
+                    ? "claudeApiKey"
+                    : provider === "gemini"
+                      ? "geminiApiKey"
+                      : "openrouterApiKey";
             const normalized = value?.trim() ? value.trim() : null;
             try {
                 const { error } = await supabase
@@ -265,6 +282,29 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 if (error) throw error;
                 setProfile((prev) =>
                     prev ? { ...prev, [stateField]: normalized } : null,
+                );
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        [user],
+    );
+
+    const updateCopilotEnabled = useCallback(
+        async (enabled: boolean): Promise<boolean> => {
+            if (!user) return false;
+            try {
+                const { error } = await supabase
+                    .from("user_profiles")
+                    .update({
+                        copilot_enabled: enabled,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq("user_id", user.id);
+                if (error) throw error;
+                setProfile((prev) =>
+                    prev ? { ...prev, copilotEnabled: enabled } : null,
                 );
                 return true;
             } catch {
@@ -331,6 +371,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 updateOrganisation,
                 updateModelPreference,
                 updateApiKey,
+                updateCopilotEnabled,
                 reloadProfile,
                 incrementMessageCredits,
             }}

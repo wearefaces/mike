@@ -9,6 +9,7 @@ import { tabularRouter } from "./routes/tabular";
 import { workflowsRouter } from "./routes/workflows";
 import { userRouter } from "./routes/user";
 import { downloadsRouter } from "./routes/downloads";
+import { mcpRouter } from "./routes/mcp";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -22,6 +23,14 @@ app.use(
 
 app.use(express.json({ limit: "50mb" }));
 
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    console.log(`[req] ${req.method} ${req.originalUrl} -> ${res.statusCode} ${Date.now() - start}ms`);
+  });
+  next();
+});
+
 app.use("/chat", chatRouter);
 app.use("/projects", projectsRouter);
 app.use("/projects/:projectId/chat", projectChatRouter);
@@ -31,6 +40,7 @@ app.use("/workflows", workflowsRouter);
 app.use("/user", userRouter);
 app.use("/users", userRouter);
 app.use("/download", downloadsRouter);
+app.use("/mcp-servers", mcpRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 

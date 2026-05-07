@@ -16,6 +16,29 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl as awsGetSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { promises as fs } from "fs";
+import path from "path";
+import { buildDownloadUrl } from "./downloadTokens";
+
+// When R2 is not configured we fall back to local filesystem storage under
+// LOCAL_STORAGE_DIR (default: backend/.local-storage). Signed URLs are
+// emitted as relative /download/<token> URLs served by the existing
+// downloads router.
+const USE_LOCAL = !(
+  process.env.R2_ENDPOINT_URL &&
+  process.env.R2_ACCESS_KEY_ID &&
+  process.env.R2_SECRET_ACCESS_KEY
+);
+
+const LOCAL_DIR =
+  process.env.LOCAL_STORAGE_DIR ??
+  path.resolve(process.cwd(), ".local-storage");
+
+function localPath(key: string): string {
+  // Prevent path traversal.
+  const safe = key.replace(/\.\.+/g, "_").replace(/^\/+/, "");
+  return path.join(LOCAL_DIR, safe);
+}
 
 function getClient(): S3Client {
   return new S3Client({
@@ -30,11 +53,7 @@ function getClient(): S3Client {
 
 const BUCKET = process.env.R2_BUCKET_NAME ?? "mike";
 
-export const storageEnabled = Boolean(
-  process.env.R2_ENDPOINT_URL &&
-  process.env.R2_ACCESS_KEY_ID &&
-  process.env.R2_SECRET_ACCESS_KEY,
-);
+export const storageEnabled = true;
 
 // ---------------------------------------------------------------------------
 // Upload
@@ -45,6 +64,12 @@ export async function uploadFile(
   content: ArrayBuffer,
   contentType: string,
 ): Promise<void> {
+  if (USE_LOCAL) {
+    const dest = localPath(key);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.writeFile(dest, Buffer.from(content));
+    return;
+  }
   const client = getClient();
   await client.send(
     new PutObjectCommand({
@@ -61,7 +86,17 @@ export async function uploadFile(
 // ---------------------------------------------------------------------------
 
 export async function downloadFile(key: string): Promise<ArrayBuffer | null> {
-  if (!storageEnabled) return null;
+  if (USE_LOCAL) {
+    try {
+      const buf = await fs.readFile(localPath(key));
+      return buf.buffer.slice(
+        buf.byteOffset,
+        buf.byteOffset + buf.byteLength,
+      ) as ArrayBuffer;
+    } catch {
+      return null;
+    }
+  }
   try {
     const client = getClient();
     const response = await client.send(
@@ -80,7 +115,14 @@ export async function downloadFile(key: string): Promise<ArrayBuffer | null> {
 // ---------------------------------------------------------------------------
 
 export async function deleteFile(key: string): Promise<void> {
-  if (!storageEnabled) return;
+  if (USE_LOCAL) {
+    try {
+      await fs.unlink(localPath(key));
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
   const client = getClient();
   await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
@@ -94,7 +136,9 @@ export async function getSignedUrl(
   expiresIn = 3600,
   downloadFilename?: string,
 ): Promise<string | null> {
-  if (!storageEnabled) return null;
+  if (USE_LOCAL) {
+    return buildDownloadUrl(key, downloadFilename ?? path.basename(key));
+  }
   try {
     const client = getClient();
     // Override the response Content-Disposition so the browser uses this

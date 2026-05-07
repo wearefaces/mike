@@ -287,8 +287,11 @@ tabularRouter.post("/prompt", requireAuth, async (req, res) => {
         } else {
             res.status(502).json({ detail: "LLM returned an empty prompt" });
         }
-    } catch {
-        res.status(502).json({ detail: "Failed to generate prompt from LLM" });
+    } catch (e) {
+        console.error("[POST /tabular-review/prompt]", e);
+        res.status(502).json({
+            detail: `Failed to generate prompt: ${(e as Error).message}`,
+        });
     }
 });
 

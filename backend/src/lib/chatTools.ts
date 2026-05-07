@@ -2314,9 +2314,23 @@ export async function runLLMStream(params: {
     projectId?: string | null;
 }): Promise<{ fullText: string; events: AssistantEvent[] }> {
     const { apiMessages, docStore, docIndex, userId, db, write, extraTools, workflowStore, tabularStore, buildCitations, model, apiKeys, projectId } = params;
-    const activeTools = extraTools?.length
-        ? [...TOOLS, ...WORKFLOW_TOOLS, ...extraTools]
-        : [...TOOLS, ...WORKFLOW_TOOLS];
+
+    // Load any MCP servers the user has enabled and merge their tools into
+    // the active tool list. Tool calls whose names start with "mcp__" are
+    // routed back to the MCP runtime in the runTools wrapper below.
+    const { listEnabledMcpServers } = await import("../routes/mcp");
+    const { loadMcpRuntime, isMcpToolName } = await import("./mcp");
+    const mcpServers = await listEnabledMcpServers(userId);
+    const mcpRuntime = mcpServers.length
+        ? await loadMcpRuntime(mcpServers)
+        : { schemas: [], serverCount: 0, toolCount: 0, callTool: async () => null as string | null };
+
+    const activeTools = [
+        ...TOOLS,
+        ...WORKFLOW_TOOLS,
+        ...(extraTools ?? []),
+        ...mcpRuntime.schemas,
+    ];
 
     // Extract system prompt; pass remaining turns to the adapter as
     // plain user/assistant messages.
@@ -2457,7 +2471,30 @@ export async function runLLMStream(params: {
             // UI sees it before the tool results stream in.
             flushText();
 
-            const toolCalls: ToolCall[] = calls.map((c) => ({
+            // Split MCP calls from native ones. MCP results are merged back
+            // by tool_call_id at the end so order is preserved.
+            const mcpCalls = calls.filter((c) => isMcpToolName(c.name));
+            const nativeCalls = calls.filter((c) => !isMcpToolName(c.name));
+
+            const mcpResults = await Promise.all(
+                mcpCalls.map(async (c) => {
+                    const content =
+                        (await mcpRuntime.callTool(
+                            c.name,
+                            (c.input ?? {}) as Record<string, unknown>,
+                        )) ?? JSON.stringify({ error: "unknown MCP tool" });
+                    write(
+                        `data: ${JSON.stringify({ type: "mcp_tool_call", name: c.name })}\n\n`,
+                    );
+                    return {
+                        role: "tool" as const,
+                        tool_call_id: c.id,
+                        content,
+                    };
+                }),
+            );
+
+            const toolCalls: ToolCall[] = nativeCalls.map((c) => ({
                 id: c.id,
                 function: {
                     name: c.name,
@@ -2547,12 +2584,15 @@ export async function runLLMStream(params: {
                 const row = r as { tool_call_id: string; content?: unknown };
                 resultByCallId.set(row.tool_call_id, String(row.content ?? ""));
             }
-            return toolCalls.map((c) => ({
+            for (const r of mcpResults) {
+                resultByCallId.set(r.tool_call_id, r.content);
+            }
+            return calls.map((c) => ({
                 tool_use_id: c.id,
                 content:
                     resultByCallId.get(c.id) ??
                     JSON.stringify({
-                        error: `Tool '${c.function.name}' is not available.`,
+                        error: `Tool '${c.name}' is not available.`,
                     }),
             }));
         },

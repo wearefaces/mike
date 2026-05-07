@@ -25,18 +25,23 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
-  if (ownError) return void res.status(500).json({ detail: ownError.message });
+  if (ownError) {
+    console.error("[GET /projects] ownError:", ownError);
+    return void res.status(500).json({ detail: ownError.message });
+  }
 
   const { data: sharedProjects, error: sharedError } = userEmail
     ? await db
         .from("projects")
         .select("*")
-        .contains("shared_with", [userEmail])
+        .filter("shared_with", "cs", JSON.stringify([userEmail]))
         .neq("user_id", userId)
         .order("created_at", { ascending: false })
     : { data: [], error: null };
-  if (sharedError)
+  if (sharedError) {
+    console.error("[GET /projects] sharedError:", sharedError);
     return void res.status(500).json({ detail: sharedError.message });
+  }
 
   const projects = [...(ownProjects ?? []), ...(sharedProjects ?? [])].sort(
     (a, b) =>
@@ -45,27 +50,38 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
 
   const result = await Promise.all(
     projects.map(async (p) => {
-      const [docs, chats, reviews] = await Promise.all([
-        db
-          .from("documents")
-          .select("id", { count: "exact", head: true })
-          .eq("project_id", p.id),
-        db
-          .from("chats")
-          .select("id", { count: "exact", head: true })
-          .eq("project_id", p.id),
-        db
-          .from("tabular_reviews")
-          .select("id", { count: "exact", head: true })
-          .eq("project_id", p.id),
-      ]);
-      return {
-        ...p,
-        is_owner: p.user_id === userId,
-        document_count: docs.count ?? 0,
-        chat_count: chats.count ?? 0,
-        review_count: reviews.count ?? 0,
-      };
+      try {
+        const [docs, chats, reviews] = await Promise.all([
+          db
+            .from("documents")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", p.id),
+          db
+            .from("chats")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", p.id),
+          db
+            .from("tabular_reviews")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", p.id),
+        ]);
+        return {
+          ...p,
+          is_owner: p.user_id === userId,
+          document_count: docs.count ?? 0,
+          chat_count: chats.count ?? 0,
+          review_count: reviews.count ?? 0,
+        };
+      } catch (e) {
+        console.error(`[GET /projects] count failed for ${p.id}:`, e);
+        return {
+          ...p,
+          is_owner: p.user_id === userId,
+          document_count: 0,
+          chat_count: 0,
+          review_count: 0,
+        };
+      }
     }),
   );
   res.json(result);

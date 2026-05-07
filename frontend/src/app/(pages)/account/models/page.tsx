@@ -14,13 +14,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useUserProfile } from "@/contexts/UserProfileContext";
 import { MODELS } from "@/app/components/assistant/ModelToggle";
+import { McpServersSection } from "@/app/components/account/McpServersSection";
 import {
     isModelAvailable,
     modelGroupToProvider,
 } from "@/app/lib/modelAvailability";
 
 export default function ModelsAndApiKeysPage() {
-    const { profile, updateModelPreference, updateApiKey } = useUserProfile();
+    const { profile, updateModelPreference, updateApiKey, updateCopilotEnabled } =
+        useUserProfile();
 
     return (
         <div className="space-y-4">
@@ -44,6 +46,10 @@ export default function ModelsAndApiKeysPage() {
                             apiKeys={{
                                 claudeApiKey: profile?.claudeApiKey ?? null,
                                 geminiApiKey: profile?.geminiApiKey ?? null,
+                                openrouterApiKey:
+                                    profile?.openrouterApiKey ?? null,
+                                copilotEnabled:
+                                    profile?.copilotEnabled ?? false,
                             }}
                             onChange={(id) =>
                                 updateModelPreference("tabularModel", id)
@@ -87,8 +93,71 @@ export default function ModelsAndApiKeysPage() {
                             updateApiKey("gemini", value.trim() || null)
                         }
                     />
+                    <ApiKeyField
+                        label="OpenRouter API Key"
+                        placeholder="sk-or-…"
+                        initialValue={profile?.openrouterApiKey ?? ""}
+                        onSave={(value) =>
+                            updateApiKey("openrouter", value.trim() || null)
+                        }
+                    />
                 </div>
             </div>
+
+            {/* GitHub Copilot bridge (local testing only) */}
+            <div className="py-6 border-t border-gray-200">
+                <div className="flex items-center gap-2 mb-2">
+                    <h2 className="text-2xl font-medium font-serif">
+                        GitHub Copilot bridge
+                    </h2>
+                </div>
+                <p className="text-sm text-gray-500 mb-4 max-w-xl">
+                    Routes <code>copilot/*</code> models through a local
+                    OpenAI-compatible bridge (e.g.{" "}
+                    <a
+                        href="https://github.com/ericc-ch/copilot-api"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                    >
+                        copilot-api
+                    </a>
+                    ) running on{" "}
+                    <code>COPILOT_BRIDGE_URL</code> (default{" "}
+                    <code>http://localhost:4141/v1/chat/completions</code>).
+                    Local testing only — don&rsquo;t enable in production.
+                </p>
+                <div className="max-w-xl flex items-center gap-3">
+                    <button
+                        type="button"
+                        onClick={() =>
+                            updateCopilotEnabled(!profile?.copilotEnabled)
+                        }
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-black/10 ${
+                            profile?.copilotEnabled
+                                ? "bg-black"
+                                : "bg-gray-200"
+                        }`}
+                        role="switch"
+                        aria-checked={profile?.copilotEnabled ?? false}
+                    >
+                        <span
+                            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                                profile?.copilotEnabled
+                                    ? "translate-x-5"
+                                    : "translate-x-0"
+                            }`}
+                        />
+                    </button>
+                    <span className="text-sm text-gray-700">
+                        {profile?.copilotEnabled
+                            ? "Enabled"
+                            : "Disabled"}
+                    </span>
+                </div>
+            </div>
+
+            <McpServersSection />
         </div>
     );
 }
@@ -100,12 +169,22 @@ function TabularModelDropdown({
 }: {
     value: string;
     onChange: (id: string) => void;
-    apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null };
+    apiKeys: {
+        claudeApiKey: string | null;
+        geminiApiKey: string | null;
+        openrouterApiKey?: string | null;
+        copilotEnabled?: boolean;
+    };
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const selected = MODELS.find((m) => m.id === value);
     const selectedAvailable = isModelAvailable(value, apiKeys);
-    const groups: ("Anthropic" | "Google")[] = ["Anthropic", "Google"];
+    const groups: ("Anthropic" | "Google" | "OpenRouter" | "Copilot")[] = [
+        "Anthropic",
+        "Google",
+        "OpenRouter",
+        "Copilot",
+    ];
 
     return (
         <DropdownMenu onOpenChange={setIsOpen}>
@@ -154,7 +233,7 @@ function TabularModelDropdown({
                                         onSelect={() => onChange(m.id)}
                                         title={
                                             !available
-                                                ? `Add a ${provider === "claude" ? "Claude" : "Gemini"} API key to use this model`
+                                                ? `Add a ${provider === "claude" ? "Claude" : provider === "gemini" ? "Gemini" : provider === "copilot" ? "Copilot bridge (enable in settings)" : "OpenRouter"} API key to use this model`
                                                 : undefined
                                         }
                                     >

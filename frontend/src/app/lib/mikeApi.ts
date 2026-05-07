@@ -815,3 +815,61 @@ export async function deleteWorkflowShare(
         method: "DELETE",
     });
 }
+
+// ---------------------------------------------------------------------------
+// MCP servers (Model Context Protocol)
+// ---------------------------------------------------------------------------
+
+export interface McpServer {
+    id: string;
+    name: string;
+    url: string;
+    enabled: boolean;
+    created_at: string;
+    has_auth_token?: boolean;
+}
+
+export async function listMcpServers(): Promise<McpServer[]> {
+    return apiRequest<McpServer[]>("/mcp-servers");
+}
+
+export async function createMcpServer(input: {
+    name: string;
+    url: string;
+    auth_token?: string;
+    enabled?: boolean;
+}): Promise<McpServer> {
+    return apiRequest<McpServer>("/mcp-servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+    });
+}
+
+export async function updateMcpServer(
+    id: string,
+    patch: {
+        name?: string;
+        url?: string;
+        auth_token?: string | null;
+        enabled?: boolean;
+    },
+): Promise<McpServer> {
+    return apiRequest<McpServer>(`/mcp-servers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+    });
+}
+
+export async function deleteMcpServer(id: string): Promise<void> {
+    await apiRequest(`/mcp-servers/${id}`, { method: "DELETE" });
+}
+
+export async function testMcpServer(id: string): Promise<{
+    ok: boolean;
+    tool_count: number;
+    tools: { name: string; description?: string }[];
+}> {
+    return apiRequest(`/mcp-servers/${id}/test`, { method: "POST" });
+}
